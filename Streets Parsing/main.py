@@ -1,25 +1,31 @@
 import json
 import requests
-from bs4 import BeautifulSoup
-from time import sleep
 import random
 
-from Classes import Street, dict_2
-from funcs import search, appropriation, types_to_nums, three_lists_to_class_objects, serialization
-from translator_by_Chat_GPT import my_translator
+from bs4 import BeautifulSoup
+from time import sleep
+
+from data import Street, type_to_number_dict
+from funcs import search, appropriation, types_to_nums, three_lists_to_class_objects, serialization, \
+    translation_into_en_and_ka
 
 names = []
 types = []
 coordinates = []
 
-for p in 'у':  # абвгдеёжзийклмнопрстуфхцчшщъыьэюя':
+# getting the streets of each current letter
+for p in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя':
     print(p)
     url = f'https://geodzen.com/ge/tbilisi/streets/{p}'
     try:
+        # getting names, types and coordinates of streets that are on first page
         result = search(url)
+    # but some letters don't have any streets at all so just ignore them
     except AttributeError:
         continue
+    # all names, types and coordinates from 'result' appropriate to relevant variables
     appropriation(names, types, coordinates, result)
+
     sleep(random.randint(1, 3))
 
     r = requests.get(url)
@@ -35,28 +41,24 @@ for p in 'у':  # абвгдеёжзийклмнопрстуфхцчшщъыьэ
         result = search(url)
         appropriation(names, types, coordinates, result)
 
+print('Parsing finished')
 # all types to numbers
-types = types_to_nums(types, dict_2)
+types = types_to_nums(types, type_to_number_dict)
 
-# all names in three languages
-translations_counter = 0
-for i in names:
-    translations_counter += 1
-    ru = i
-    en = my_translator(text_for_translation=i, from_language='ru', to_language='en')
-    ka = my_translator(text_for_translation=i, from_language='ru', to_language='ka')
-    names[translations_counter - 1] = {'ru': ru, 'en': en, 'ka': ka}
+print('types_to_nums() finished')
+# all names translate in three languages
+names = translation_into_en_and_ka(names)
 
-print(names)
-
+print('Translation finished')
 # create list of class' objects with name, type and coordinates of each street
 streets = three_lists_to_class_objects(Street, names, types, coordinates)
-print(streets)
+
+print('three_lists_to_class_objects() finished')
 # serialization
 serialization(streets, len(types))
 # now we have my_file.json
+print('Serialization finished')
 
-
-with open('my_file.json', 'r') as data_file:
+with open('my_file.json', 'r', encoding='utf8') as data_file:
     d_data = json.load(data_file)
     print(d_data)

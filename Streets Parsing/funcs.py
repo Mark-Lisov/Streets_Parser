@@ -1,7 +1,9 @@
 import json
-
 import requests
+
 from bs4 import BeautifulSoup
+from data import english_georgian_dict
+from translate import Translator
 
 all_types = ['улица', 'переулок', 'проезд', 'микрорайон', 'площадь', 'проспект', 'дорога', 'линия', 'тупик', 'шоссе',
              'бульвар', 'квартал', 'аллея', 'набережная', 'посёлок', 'мост', 'спуск', 'тракт', 'массив', 'путепровод',
@@ -16,12 +18,15 @@ def search(url: str):
     func_types = []
     func_coordinates = []
 
+    counter_for_test = 0
+
     # get name of current street
     get_names = soup.find('div', class_='table-wrapper').findAll('a', class_='bold-fw')
     get_types = soup.find('div', class_='table-wrapper').findAll('td', class_='sm-rp right-ta')
     types_counter = 0
 
     for name in get_names:
+        counter_for_test += 1
         func_names.append(name.text)
 
     # get type of current street and add additional parts to name
@@ -48,7 +53,7 @@ def search(url: str):
         else:
             func_types.append(type_)
 
-    # follow the link and get the coordinates
+    # get links to all the streets
     urls = []
     urls_counter = 0
     for i in soup.findAll('a', class_='bold-fw'):
@@ -58,20 +63,24 @@ def search(url: str):
         urls_counter += 1
         current_request = requests.get(current_url)
         if str(current_request)[11:14] != '200':
-            func_coordinates.append('Нет данных')
+            # check if the request was successful
+            func_coordinates.append('No data')
             continue
         else:
+            # follow the link and get the coordinates
             current_soup = BeautifulSoup(current_request.text, 'lxml')
             coordinates_parts = current_soup.find('div', class_='street-description').findAll('b',
                                                                                               class_='positive-coord')
             if func_types[urls_counter - 1] not in all_types:
-                text_from_link = current_soup.find('div', class_='container street').find('h1').text
-                tfl_lst = text_from_link.split(' ')
+                # if the street type was written on the other side, it was not possible to take it
+                # let's try again, now through the link
+                type_from_link = current_soup.find('div', class_='container street').find('h1').text
+                type_from_link_lst = type_from_link.split(' ')
                 try:
-                    int(text_from_link[0])
-                    func_types[urls_counter - 1] = tfl_lst[2]
+                    int(type_from_link[0])
+                    func_types[urls_counter - 1] = type_from_link_lst[2]
                 except ValueError:
-                    func_types[urls_counter - 1] = tfl_lst[1]
+                    func_types[urls_counter - 1] = type_from_link_lst[1]
 
             c1 = None
             c2 = None
@@ -86,6 +95,8 @@ def search(url: str):
                     counter += 1
 
             func_coordinates.append(c1 + ";" + c2)
+
+    print('Iteration #' + str(counter_for_test - 1))
     return func_names, func_types, func_coordinates
 
 
@@ -95,16 +106,18 @@ def appropriation(a: list, b: list, c: list, r: list):
     c.extend(r[2])
 
 
-def types_to_nums(types_list: list, dictionary: dict):
+def types_to_nums(types_list: list, dictionary: dict) -> list:
     new_types = types_list
     types_counter = 0
     for i in types_list:
         types_counter += 1
+        if i == '':
+            new_types[types_counter - 1] = 'No data'
         new_types[types_counter - 1] = (dictionary[i])
     return new_types
 
 
-def three_lists_to_class_objects(class_, names: list, types: list, coordinates: list):
+def three_lists_to_class_objects(class_, names: list, types: list, coordinates: list) -> list:
     streets = []
     streets_counter = 0
     for ns in names:
@@ -114,20 +127,49 @@ def three_lists_to_class_objects(class_, names: list, types: list, coordinates: 
 
 
 def serialization(streets: list, num: int):
-    open("my_file.json", "w")
     all_streets_together = []
     for i in range(num):
         all_streets_together.append(streets[i].__dict__)
 
-    with open("my_file.json", "a") as json_file:
-        json.dump(all_streets_together, json_file, indent='\t', sort_keys=True)
+    with open("my_file.json", "w", encoding='utf8') as json_file:
+        json.dump(all_streets_together, json_file, ensure_ascii=False, indent='\t', sort_keys=True)
 
 
-def filter_out(*lists: list):
-    list_of_lists = [*lists]
-    for one_list in list_of_lists:
-        try:
-            while True:
-                one_list.remove([])
-        except ValueError:
-            pass
+def translation_into_en_and_ka(streets_names: list) -> list[dict]:
+    georgian_letters = [chr(code) for code in range(ord('ა'), ord('ჺ') + 1)]
+
+    t_to_en = Translator(from_lang='ru', to_lang='en')
+    t_to_ka = Translator(from_lang='ru', to_lang='ka')
+    translations_counter = 0
+    for i in streets_names:
+        translations_counter += 1
+        ru = i
+        en = t_to_en.translate(ru)
+        ka = t_to_ka.translate(ru)
+        # some names in 'ka' translator still returns in english instead of georgian
+        # let's fix it
+        while True:
+            list_ka = [lett for lett in ka]
+            boolean = [False]
+            for letter in list_ka:
+                if any(boolean):
+                    break
+                if letter in georgian_letters:
+                    boolean.append(True)
+                else:
+                    boolean.append(False)
+            if any(boolean):
+                break
+            else:
+                letters_counter = 0
+                for en_lett in list_ka:
+                    letters_counter += 1
+                    try:
+                        list_ka[letters_counter - 1] = english_georgian_dict[en_lett]
+                    except KeyError:
+                        continue
+                ka = ''.join(list_ka)
+                break
+
+        streets_names[translations_counter - 1] = {'ru': ru, 'en': en, 'ka': ka}
+    return streets_names
